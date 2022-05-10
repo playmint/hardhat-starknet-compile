@@ -15,26 +15,37 @@ export const TASK_STARKNET_COMPILE_COMPILE: string = "starknet-compile:compile";
 interface CairoFileCache {
     dependencies: {
         [filePath: string]: {
-            lastModificationTime: number,
-            hash: string
+            lastModificationTime: number;
+            hash: string;
         }
     }
 }
 
 interface CairoFilesCache {
-    [filePath: string]: CairoFileCache
+    [filePath: string]: CairoFileCache;
 }
 
 // set up all the stuff that we add to the config
 extendConfig((config: HardhatConfig, userConfig: Readonly<HardhatUserConfig>) => {
+    // sources dir - where the cairo files will be
     let starknetSources = config.paths.sources; // by default just use the regular sources dir
 
     const userStarknetSources = userConfig.paths?.starknetSources;
-    if (starknetSources !== undefined) {
+    if (userStarknetSources !== undefined) {
         starknetSources = userStarknetSources!;
     }
 
     config.paths.starknetSources = starknetSources;
+
+    // artifacts dir - where build output goes
+    let starknetArtifacts = "artifacts-starknet";
+
+    const userStarknetArtifacts = userConfig.paths?.starknetArtifacts;
+    if (userStarknetArtifacts !== undefined) {
+        starknetArtifacts = userStarknetArtifacts!;
+    }
+
+    config.paths.starknetArtifacts = starknetArtifacts;
 });
 
 // hook into normal compile task
@@ -51,16 +62,21 @@ task(TASK_STARKNET_COMPILE)
         const cairoFiles: string[] = await hre.run(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES);
 
         const cacheFilePath = `${hre.config.paths.cache}/cairo-files-cache.json`;
-        const cairoFilesCache: CairoFilesCache = JSON.parse(fs.readFileSync(cacheFilePath).toString());
+        const cairoFilesCache: CairoFilesCache = fs.existsSync(cacheFilePath) ?
+            JSON.parse(fs.readFileSync(cacheFilePath).toString()) : {};
 
-        const toCompile: string[] = await hre.run(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE, { sources: cairoFiles, cache: cairoFilesCache });
+        const toCompile: string[] = await hre.run(
+            TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE,
+            { sources: cairoFiles, cache: cairoFilesCache });
 
         if (toCompile.length > 0) {
             try {
-                await hre.run(TASK_STARKNET_COMPILE_COMPILE, { sources: toCompile, cache: cairoFilesCache });
+                await hre.run(TASK_STARKNET_COMPILE_COMPILE,
+                    { sources: toCompile, cache: cairoFilesCache });
             }
             finally {
-                fs.writeFileSync("./cache/cairo-files-cache.json", JSON.stringify(cairoFilesCache, null, 4));
+                fs.writeFileSync("./cache/cairo-files-cache.json",
+                    JSON.stringify(cairoFilesCache, null, 4));
             }
 
             console.log(`Compiled ${toCompile.length} Cairo ${toCompile.length > 1 ? "files" : "file"} successfully`);
@@ -134,14 +150,11 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
 subtask(TASK_STARKNET_COMPILE_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[], cache: CairoFilesCache }) => {
-        // TODO configurable
-        const artifactsDir = "artifacts-starknet";
+    .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre) => {
         const cache = args.cache;
 
         for (const source of args.sources) {
-            // TODO configurable artifacts dir
-            const outFile = `${artifactsDir}/${source.substring(0, source.length - 6)}.json`;
+            const outFile = `${hre.config.paths.artifacts}/${source.substring(0, source.length - 6)}.json`;
             const outDir = path.dirname(outFile);
             if (!fs.existsSync(outDir)) {
                 fs.mkdirSync(outDir, { recursive: true });
