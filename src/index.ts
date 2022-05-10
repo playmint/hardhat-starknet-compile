@@ -1,10 +1,11 @@
-import { subtask, task, types } from "hardhat/config";
+import { extendConfig, subtask, task, types } from "hardhat/config";
 import { HardhatPluginError } from "hardhat/plugins";
 import { TASK_COMPILE } from "hardhat/builtin-tasks/task-names";
 import fs from "fs";
 import { exec, ExecException } from "child_process";
 import path from "path"
 import { createHash } from "crypto";
+import { HardhatConfig, HardhatUserConfig } from "hardhat/types";
 
 export const TASK_STARKNET_COMPILE: string = "starknet-compile";
 export const TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES: string = "starknet-compile:gather-cairo-files";
@@ -24,6 +25,18 @@ interface CairoFilesCache {
     [filePath: string]: CairoFileCache
 }
 
+// set up all the stuff that we add to the config
+extendConfig((config: HardhatConfig, userConfig: Readonly<HardhatUserConfig>) => {
+    let starknetSources = config.paths.sources; // by default just use the regular sources dir
+
+    const userStarknetSources = userConfig.paths?.starknetSources;
+    if (starknetSources !== undefined) {
+        starknetSources = userStarknetSources!;
+    }
+
+    config.paths.starknetSources = starknetSources;
+});
+
 // hook into normal compile task
 task(TASK_COMPILE)
     .setAction(async (args, hre, runSuper) => {
@@ -37,8 +50,7 @@ task(TASK_STARKNET_COMPILE)
     .setAction(async (args, hre) => {
         const cairoFiles: string[] = await hre.run(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES);
 
-        // TODO is the cache file path configurable?
-        const cacheFilePath = "cache/cairo-files-cache.json";
+        const cacheFilePath = `${hre.config.paths.cache}/cairo-files-cache.json`;
         const cairoFilesCache: CairoFilesCache = JSON.parse(fs.readFileSync(cacheFilePath).toString());
 
         const toCompile: string[] = await hre.run(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE, { sources: cairoFiles, cache: cairoFilesCache });
@@ -60,8 +72,7 @@ task(TASK_STARKNET_COMPILE)
 
 // first gather files
 subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
-    .setAction(async () => {
-        // TODO configurable contract dirs
+    .setAction(async (args, hre) => {
         const findCairoFilesInDir = (dir: string): string[] => {
             let cairoFiles: string[] = [];
             const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -79,11 +90,7 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
             return cairoFiles;
         };
 
-        const contractDirs = ["contracts"];
-        let cairoFiles: string[] = [];
-        for (const contractDir of contractDirs) {
-            cairoFiles = cairoFiles.concat(findCairoFilesInDir(contractDir));
-        }
+        const cairoFiles = findCairoFilesInDir(hre.config.paths.starknetSources);
 
         return cairoFiles;
     });
