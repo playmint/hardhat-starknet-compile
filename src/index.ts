@@ -111,8 +111,6 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
         return cairoFiles;
     });
 
-// TODO check there's a valid compiler
-
 // see what has changed
 subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
@@ -151,6 +149,25 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
     .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre) => {
+        try {
+            const compiler = await new Promise((resolve, reject) => {
+                exec("which starknet-compile", (error, stdout) => {
+                    if (error) {
+                        reject(error);
+                    }
+                    else {
+                        resolve(stdout);
+                    }
+                });
+            });
+            if (compiler == "") {
+                throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
+            }
+        }
+        catch (err) {
+            throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
+        }
+
         const cache = args.cache;
 
         for (const source of args.sources) {
@@ -162,14 +179,15 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
 
             try {
                 await new Promise((resolve, reject) => {
-                    exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies deps.txt`, (error, stdout) => {
-                        if (error) {
-                            reject(error);
-                        }
-                        else {
-                            resolve(stdout);
-                        }
-                    });
+                    exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies deps.txt`,
+                        (error, stdout) => {
+                            if (error) {
+                                reject(error);
+                            }
+                            else {
+                                resolve(stdout);
+                            }
+                        });
                 });
             }
             catch (error) {
