@@ -94,19 +94,21 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
             const entries = fs.readdirSync(dir, { withFileTypes: true });
 
             for (const entry of entries) {
-                const path = `${dir}/${entry.name}`;
+                const entryPath = `${dir}/${entry.name}`;
                 if (entry.isDirectory()) {
-                    cairoFiles = cairoFiles.concat(findCairoFilesInDir(path));
+                    cairoFiles = cairoFiles.concat(findCairoFilesInDir(entryPath));
                 }
                 else if (entry.name.endsWith(".cairo")) {
-                    cairoFiles.push(path);
+                    cairoFiles.push(entryPath);
                 }
             }
 
             return cairoFiles;
         };
 
-        const cairoFiles = findCairoFilesInDir(hre.config.paths.starknetSources);
+        // need these paths to be relative not absolute
+        const starknetSources = path.relative(hre.config.paths.root, hre.config.paths.starknetSources);
+        const cairoFiles = findCairoFilesInDir(starknetSources);
 
         return cairoFiles;
     });
@@ -115,26 +117,35 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
 subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[], cache: CairoFilesCache }): Promise<string[]> => {
+    .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre): Promise<string[]> => {
         let toCompile: string[] = [];
 
         for (let i = 0; i < args.sources.length; ++i) {
-            const fileCache = args.cache[args.sources[i]];
+            const source = args.sources[i];
+
+            if (!fs.existsSync(`${hre.config.paths.starknetArtifacts}/${source.substring(0, source.length - 6)}.json`)) {
+                // artifact doesn't exist so definitely needs compiling
+                toCompile.push(source);
+                continue;
+            }
+
+            const fileCache = args.cache[source];
             if (fileCache === undefined) {
                 // not even in cache so definitely needs compiling
-                toCompile.push(args.sources[i]);
+                toCompile.push(source);
+                continue;
             }
-            else {
-                for (const dependencyPath in fileCache.dependencies) {
-                    const dependency = fileCache.dependencies[dependencyPath];
 
-                    // first check file modified time
-                    if (fs.statSync(dependencyPath).mtime.getTime() != dependency.lastModificationTime) {
-                        // modified time has changed, so now check contents have actually changed
-                        const hash = createHash("md5").update(fs.readFileSync(dependencyPath)).digest().toString("hex");
-                        if (hash != dependency.hash) {
-                            toCompile.push(args.sources[i]);
-                        }
+            // see if the file or any deps have changed
+            for (const dependencyPath in fileCache.dependencies) {
+                const dependency = fileCache.dependencies[dependencyPath];
+
+                // first check file modified time
+                if (fs.statSync(dependencyPath).mtime.getTime() != dependency.lastModificationTime) {
+                    // modified time has changed, so now check contents have actually changed
+                    const hash = createHash("md5").update(fs.readFileSync(dependencyPath)).digest().toString("hex");
+                    if (hash != dependency.hash) {
+                        toCompile.push(source);
                     }
                 }
             }
@@ -171,7 +182,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
         const cache = args.cache;
 
         for (const source of args.sources) {
-            const outFile = `${hre.config.paths.artifacts}/${source.substring(0, source.length - 6)}.json`;
+            const outFile = `${hre.config.paths.starknetArtifacts}/${source.substring(0, source.length - 6)}.json`;
             const outDir = path.dirname(outFile);
             if (!fs.existsSync(outDir)) {
                 fs.mkdirSync(outDir, { recursive: true });
