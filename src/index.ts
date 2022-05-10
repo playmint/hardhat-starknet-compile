@@ -12,9 +12,11 @@ export const TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE: string = "starknet-comp
 export const TASK_STARKNET_COMPILE_COMPILE: string = "starknet-compile:compile";
 
 interface CairoFileCache {
-    [filePath: string]: {
-        lastModificationTime: number,
-        hash: string
+    dependencies: {
+        [filePath: string]: {
+            lastModificationTime: number,
+            hash: string
+        }
     }
 }
 
@@ -34,16 +36,25 @@ task(TASK_COMPILE)
 task(TASK_STARKNET_COMPILE)
     .setAction(async (args, hre) => {
         const cairoFiles: string[] = await hre.run(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES);
-        const toCompile: string[] = await hre.run(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE, { sources: cairoFiles });
 
         // TODO is the cache file path configurable?
         const cacheFilePath = "cache/cairo-files-cache.json";
         const cairoFilesCache: CairoFilesCache = JSON.parse(fs.readFileSync(cacheFilePath).toString());
-        try {
-            await hre.run(TASK_STARKNET_COMPILE_COMPILE, { sources: toCompile, cache: cairoFilesCache });
+
+        const toCompile: string[] = await hre.run(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE, { sources: cairoFiles, cache: cairoFilesCache });
+
+        if (toCompile.length > 0) {
+            try {
+                await hre.run(TASK_STARKNET_COMPILE_COMPILE, { sources: toCompile, cache: cairoFilesCache });
+            }
+            finally {
+                fs.writeFileSync("./cache/cairo-files-cache.json", JSON.stringify(cairoFilesCache, null, 4));
+            }
+
+            console.log(`Compiled ${toCompile.length} Cairo ${toCompile.length > 1 ? "files" : "file"} successfully`);
         }
-        finally {
-            fs.writeFileSync("./cache/cairo-files-cache.json", JSON.stringify(cairoFilesCache, null, 4));
+        else {
+            console.log("No Cairo files to compile");
         }
     });
 
@@ -82,8 +93,33 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
 // see what has changed
 subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[] }): Promise<string[]> => {
-        return args.sources;
+    .addParam("cache", undefined, undefined, types.any)
+    .setAction(async (args: { sources: string[], cache: CairoFilesCache }): Promise<string[]> => {
+        let toCompile: string[] = [];
+
+        for (let i = 0; i < args.sources.length; ++i) {
+            const fileCache = args.cache[args.sources[i]];
+            if (fileCache === undefined) {
+                // not even in cache so definitely needs compiling
+                toCompile.push(args.sources[i]);
+            }
+            else {
+                for (const dependencyPath in fileCache.dependencies) {
+                    const dependency = fileCache.dependencies[dependencyPath];
+
+                    // first check file modified time
+                    if (fs.statSync(dependencyPath).mtime.getTime() != dependency.lastModificationTime) {
+                        // modified time has changed, so now check contents have actually changed
+                        const hash = createHash("md5").update(fs.readFileSync(dependencyPath)).digest().toString("hex");
+                        if (hash != dependency.hash) {
+                            toCompile.push(args.sources[i]);
+                        }
+                    }
+                }
+            }
+        }
+
+        return toCompile;
     });
 
 // compile files
@@ -98,7 +134,6 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
 
         for (const source of args.sources) {
             // TODO configurable artifacts dir
-            console.log(source);
             const outFile = `${artifactsDir}/${source.substring(0, source.length - 6)}.json`;
             const outDir = path.dirname(outFile);
             if (!fs.existsSync(outDir)) {
@@ -128,7 +163,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
                 throw new HardhatPluginError("hardhat-starknet-compile", "compilation of cairo contracts failed: \n" + msgRows.join("\n"));
             }
 
-            const fileCache: CairoFileCache = {};
+            const fileCache: CairoFileCache = { dependencies: {} };
             const depsRows = fs.readFileSync("deps.txt").toString().split("\n");
             fs.rmSync("deps.txt");
 
@@ -146,7 +181,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
 
                 const stats = fs.statSync(depsRow);
                 const hash = createHash("md5").update(fs.readFileSync(depsRow)).digest().toString("hex");
-                fileCache[depsRow] = {
+                fileCache.dependencies[depsRow] = {
                     lastModificationTime: stats.mtime.getTime(),
                     hash: hash
                 }
