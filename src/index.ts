@@ -11,6 +11,17 @@ export const TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES: string = "starknet-compil
 export const TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE: string = "starknet-compile:get-files-to-compile";
 export const TASK_STARKNET_COMPILE_COMPILE: string = "starknet-compile:compile";
 
+interface CairoFileCache {
+    [filePath: string]: {
+        lastModificationTime: number,
+        hash: string
+    }
+}
+
+interface CairoFilesCache {
+    [filePath: string]: CairoFileCache
+}
+
 // hook into normal compile task
 task(TASK_COMPILE)
     .setAction(async (args, hre, runSuper) => {
@@ -24,7 +35,16 @@ task(TASK_STARKNET_COMPILE)
     .setAction(async (args, hre) => {
         const cairoFiles: string[] = await hre.run(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES);
         const toCompile: string[] = await hre.run(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE, { sources: cairoFiles });
-        await hre.run(TASK_STARKNET_COMPILE_COMPILE, { sources: toCompile });
+
+        // TODO is the cache file path configurable?
+        const cacheFilePath = "cache/cairo-files-cache.json";
+        const cairoFilesCache: CairoFilesCache = JSON.parse(fs.readFileSync(cacheFilePath).toString());
+        try {
+            await hre.run(TASK_STARKNET_COMPILE_COMPILE, { sources: toCompile, cache: cairoFilesCache });
+        }
+        finally {
+            fs.writeFileSync("./cache/cairo-files-cache.json", JSON.stringify(cairoFilesCache, null, 4));
+        }
     });
 
 // first gather files
@@ -70,11 +90,11 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
 // TODO concurrency
 subtask(TASK_STARKNET_COMPILE_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[] }) => {
+    .addParam("cache", undefined, undefined, types.any)
+    .setAction(async (args: { sources: string[], cache: CairoFilesCache }) => {
         // TODO configurable
         const artifactsDir = "artifacts-starknet";
-
-        let cache: { [file: string]: any } = {}; // TODO need to pass this in from parent task so it can written to disk regardless of exceptions
+        const cache = args.cache;
 
         for (const source of args.sources) {
             // TODO configurable artifacts dir
@@ -108,7 +128,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
                 throw new HardhatPluginError("hardhat-starknet-compile", "compilation of cairo contracts failed: \n" + msgRows.join("\n"));
             }
 
-            let deps: { [file: string]: any } = {};
+            const fileCache: CairoFileCache = {};
             const depsRows = fs.readFileSync("deps.txt").toString().split("\n");
             fs.rmSync("deps.txt");
 
@@ -124,19 +144,14 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
                     continue;
                 }
 
-                const stats = fs.statSync(depsRows[i]);
-                const hash = createHash("md5").update(fs.readFileSync(depsRows[i])).digest().toString("hex");
-                deps[depsRows[i]] = {
+                const stats = fs.statSync(depsRow);
+                const hash = createHash("md5").update(fs.readFileSync(depsRow)).digest().toString("hex");
+                fileCache[depsRow] = {
                     lastModificationTime: stats.mtime.getTime(),
                     hash: hash
                 }
             }
 
-            cache[source] = {
-                dependencies: deps
-            };
+            cache[source] = fileCache;
         }
-
-        // TODO is the cache dir folder configurable?
-        fs.writeFileSync("./cache/cairo-files-cache.json", JSON.stringify(cache, null, 4));
     });
