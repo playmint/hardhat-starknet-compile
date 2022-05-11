@@ -1,8 +1,32 @@
 {
   "name": "@playmint/starknet-hardhat-compile",
+  "author": "Playmint",
+  "license": "CC0-1.0",
   "version": "0.1.0",
   "description": "Hardhat plugin for compiling starknet contracts.",
+  "homepage": "https://github.com/playmint/hardhat-starknet-compile",
+  "repository": "github:playmint/hardhat-starknet-compile",
   "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "keywords": [
+    "hardhat",
+    "ethereum",
+    "starknet",
+    "starknet-compile",
+    "cairo",
+    "smart-contracts",
+    "blockchain",
+    "dapps",
+    "javascript",
+    "tooling",
+    "typescript"
+  ],
+  "files": [
+    "lib/",
+    "src/",
+    "LICENSE.md",
+    "README.md"
+  ],
   "devDependencies": {
     "@types/mocha": "^9.1.1",
     "hardhat": "^2.9.3",
