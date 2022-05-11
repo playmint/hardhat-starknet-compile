@@ -78,8 +78,6 @@ task(TASK_STARKNET_COMPILE)
                 fs.writeFileSync("./cache/cairo-files-cache.json",
                     JSON.stringify(cairoFilesCache, null, 4));
             }
-
-            console.log(`Compiled ${toCompile.length} Cairo ${toCompile.length > 1 ? "files" : "file"} successfully`);
         }
         else {
             console.log("No Cairo files to compile");
@@ -160,6 +158,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
     .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre) => {
+        // first make sure starknet-compile exists
         try {
             const compiler = await new Promise((resolve, reject) => {
                 exec("which starknet-compile", (error, stdout) => {
@@ -179,63 +178,101 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
             throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
         }
 
+        // now attempt to compile everything and update the cache when successful
         const cache = args.cache;
+        let promises = [];
+        let promiseErrors: ExecException[] = [];
 
+        // loop over sources and create a promise for each so they hopefully will run concurrently
         for (const source of args.sources) {
+            const depsFile = `${hre.config.paths.starknetArtifacts}/${source}.deps.txt`;
             const outFile = `${hre.config.paths.starknetArtifacts}/${source.substring(0, source.length - 6)}.json`;
             const outDir = path.dirname(outFile);
             if (!fs.existsSync(outDir)) {
                 fs.mkdirSync(outDir, { recursive: true });
             }
 
-            try {
-                await new Promise((resolve, reject) => {
-                    exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies deps.txt`,
-                        (error, stdout) => {
-                            if (error) {
-                                reject(error);
+            promises.push(new Promise<string>(async (resolve, reject) => {
+                exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies "${depsFile}"`,
+                    (error, stdout) => {
+                        if (error) {
+                            // the artifacts can still be created even when compilation fails
+                            if (fs.existsSync(outFile)) {
+                                fs.rmSync(outFile);
                             }
-                            else {
-                                resolve(stdout);
+                            if (fs.existsSync(depsFile)) {
+                                fs.rmSync(depsFile);
                             }
-                        });
-                });
-            }
-            catch (error) {
-                const exc = (error as ExecException);
 
+                            reject(error);
+                        }
+                        else {
+                            const fileCache: CairoFileCache = { dependencies: {} };
+
+                            const depsRows = fs.readFileSync(depsFile).toString().split("\n");
+                            fs.rmSync(depsFile);
+
+                            // note, these deps include the current file, which is why we don't 
+                            // explicitly hash it
+                            for (let i = 0; i < depsRows.length; ++i) {
+                                const depsRow = depsRows[i].trim();
+
+                                // ignore any empty row
+                                // ignore the SET (DEPENDENCIES line at the start, and the closing )
+                                if (depsRow.length == 0 ||
+                                    ["SET (DEPENDENCIES", ")"].indexOf(depsRow) != -1) {
+                                    continue;
+                                }
+
+                                const stats = fs.statSync(depsRow);
+                                const hash = createHash("md5").update(fs.readFileSync(depsRow)).digest().toString("hex");
+                                fileCache.dependencies[depsRow] = {
+                                    lastModificationTime: stats.mtime.getTime(),
+                                    hash: hash
+                                }
+
+                                cache[source] = fileCache;
+                            }
+
+                            resolve(stdout);
+                        }
+                    });
+            }).catch((err) => {
+                promiseErrors.push(err);
+            }));
+
+        }
+
+        // wait for everything to finish, I didn't use
+        // Promise.all because that always seemed to 
+        // kill all the promises if one failed. I'd like
+        // as many to succeed as possible.
+        for (const p of promises) {
+            await p;
+        }
+
+        // Report successes
+        const successfulCount = args.sources.length - promiseErrors.length;
+        if (successfulCount > 0) {
+            console.log(`Compiled ${successfulCount} Cairo ${successfulCount > 1 ? "files" : "file"} successfully`);
+        }
+
+        // Report errors
+        if (promiseErrors.length > 0) {
+            console.log(`${promiseErrors.length} ${promiseErrors.length > 1 ? "errors" : "error"}`);
+
+            let errorString = "";
+            for (const err of promiseErrors) {
                 // remove the "command failed etc" line, we already know that
-                let msgRows = exc.message.split("\n");
+                let msgRows = err.message.split("\n");
                 if (msgRows[0].startsWith("Command failed: starknet-compile ")) {
                     msgRows = msgRows.slice(1);
                 }
-                throw new HardhatPluginError("hardhat-starknet-compile", "compilation of cairo contracts failed: \n" + msgRows.join("\n"));
+
+                // the rest of the lines should give the user the file and line number etc
+                errorString += msgRows.join("\n") + "\n";
             }
 
-            const fileCache: CairoFileCache = { dependencies: {} };
-            const depsRows = fs.readFileSync("deps.txt").toString().split("\n");
-            fs.rmSync("deps.txt");
-
-            // note, these deps include the current file, which is why we don't 
-            // explicitly hash it
-            for (let i = 0; i < depsRows.length; ++i) {
-                const depsRow = depsRows[i].trim();
-
-                // ignore any empty row
-                // ignore the SET (DEPENDENCIES line at the start, and the closing )
-                if (depsRow.length == 0 ||
-                    ["SET (DEPENDENCIES", ")"].indexOf(depsRow) != -1) {
-                    continue;
-                }
-
-                const stats = fs.statSync(depsRow);
-                const hash = createHash("md5").update(fs.readFileSync(depsRow)).digest().toString("hex");
-                fileCache.dependencies[depsRow] = {
-                    lastModificationTime: stats.mtime.getTime(),
-                    hash: hash
-                }
-            }
-
-            cache[source] = fileCache;
+            throw new HardhatPluginError("hardhat-starknet-compile", "compilation of cairo contracts failed: \n" + errorString);
         }
     });
