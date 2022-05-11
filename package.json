@@ -1,5 +1,5 @@
 {
-  "name": "@anders-t/starknet-hardhat-compile",
+  "name": "@playmint/starknet-hardhat-compile",
   "version": "0.1.0",
   "description": "Hardhat plugin for compiling starknet contracts.",
   "main": "lib/index.js",
