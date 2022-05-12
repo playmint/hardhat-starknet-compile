@@ -7,6 +7,8 @@ import path from "path"
 import { createHash } from "crypto";
 import { HardhatConfig, HardhatUserConfig } from "hardhat/types";
 
+import "./type-extensions";
+
 export const TASK_STARKNET_COMPILE: string = "starknet-compile";
 export const TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES: string = "starknet-compile:gather-cairo-files";
 export const TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE: string = "starknet-compile:get-files-to-compile";
