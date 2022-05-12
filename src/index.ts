@@ -160,7 +160,7 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
                 continue;
             }
 
-            const fileCache = args.cache[source];
+            const fileCache = args.cache[compileJob.source];
             if (fileCache === undefined) {
                 // not even in cache so definitely needs compiling
                 toCompile.push(compileJob);
@@ -186,7 +186,6 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
     });
 
 // compile files
-// TODO concurrency
 subtask(TASK_STARKNET_COMPILE_COMPILE)
     .addParam("compileJobs", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
@@ -230,7 +229,6 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
             }
 
             promises.push(new Promise<string>(async (resolve, reject) => {
-                console.log(`starknet-compile "${compileJob.source}" --output "${compileJob.artifactPath}" --abi "${compileJob.abiPath}" --cairo_dependencies "${depsFile}" --cairo_path "${cairoPath}"`);
                 exec(`starknet-compile "${compileJob.source}" --output "${compileJob.artifactPath}" --abi "${compileJob.abiPath}" --cairo_dependencies "${depsFile}" --cairo_path "${cairoPath}"`,
                     (error, stdout) => {
                         if (error) {
@@ -284,14 +282,8 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
 
         }
 
-        // wait for everything to finish, I didn't use
-        // Promise.all because that always seemed to 
-        // kill all the promises if one failed. I'd like
-        // as many to succeed as possible.
-        /*for (const p of promises) {
-            await p;
-        }*/
-        Promise.all(promises);
+        // wait for everything to finish
+        await Promise.all(promises);
 
         // Report successes
         const successfulCount = args.compileJobs.length - promiseErrors.length;
