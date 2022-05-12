@@ -2,7 +2,7 @@
   "name": "@playmint/hardhat-starknet-compile",
   "author": "Playmint",
   "license": "CC0-1.0",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Hardhat plugin for compiling starknet contracts.",
   "homepage": "https://github.com/playmint/hardhat-starknet-compile",
   "repository": "github:playmint/hardhat-starknet-compile",
