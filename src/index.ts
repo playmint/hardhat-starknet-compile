@@ -34,7 +34,7 @@ extendConfig((config: HardhatConfig, userConfig: Readonly<HardhatUserConfig>) =>
 
     const userStarknetSources = userConfig.paths?.starknetSources;
     if (userStarknetSources !== undefined) {
-        starknetSources = userStarknetSources!;
+        starknetSources = userStarknetSources;
     }
 
     config.paths.starknetSources = starknetSources;
@@ -44,10 +44,20 @@ extendConfig((config: HardhatConfig, userConfig: Readonly<HardhatUserConfig>) =>
 
     const userStarknetArtifacts = userConfig.paths?.starknetArtifacts;
     if (userStarknetArtifacts !== undefined) {
-        starknetArtifacts = userStarknetArtifacts!;
+        starknetArtifacts = userStarknetArtifacts;
     }
 
     config.paths.starknetArtifacts = starknetArtifacts;
+
+    // cairo path - passed to compiler --cairo_path arg
+    let cairoPath: string[] = [];
+
+    const userCairoPath = userConfig.paths?.cairoPath;
+    if (userCairoPath !== undefined) {
+        cairoPath = userCairoPath;
+    }
+
+    config.paths.cairoPath = cairoPath;
 });
 
 // hook into normal compile task
@@ -185,6 +195,11 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
         let promises = [];
         let promiseErrors: ExecException[] = [];
 
+        let cairoPath = hre.config.paths.starknetSources;
+        if (hre.config.paths.cairoPath.length > 0) {
+            cairoPath += ":" + hre.config.paths.cairoPath.join(":");
+        }
+
         // loop over sources and create a promise for each so they hopefully will run concurrently
         for (const source of args.sources) {
             const depsFile = `${hre.config.paths.starknetArtifacts}/${source}.deps.txt`;
@@ -195,7 +210,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
             }
 
             promises.push(new Promise<string>(async (resolve, reject) => {
-                exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies "${depsFile}"`,
+                exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies "${depsFile}" --cairo_path "${cairoPath}"`,
                     (error, stdout) => {
                         if (error) {
                             // the artifacts can still be created even when compilation fails
