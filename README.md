@@ -3,8 +3,11 @@ A plugin for hardhat which modifies the standard Hardhat `compile` task to compi
 
 ## Installation
 Install with npm:
+
 `npm i --save-dev @playmint/hardhat-starknet-compile`
+
 Then import in your hardhat.config file:
+
 ```ts
 import "@playmint/hardhat-starknet-compile";
 ```
@@ -12,7 +15,7 @@ import "@playmint/hardhat-starknet-compile";
 ## How to use
 This plugin hooks in to Hardhat's `compile` task, but if you want you can run the task `starknet-compile` to compile your Starknet contracts only.
 
-Only contracts which have changed (or their dependencies have) will be compiled, if you want to force a contract to recompile you can delete it's .json file which will be in the Starknet artifacts directory, or delete the cairo files cache.
+Only contracts which have changed (or their dependencies have) will be compiled, if you want to force a contract to recompile you can delete its .json file which will be in the Starknet artifacts directory, or delete the cairo files cache.
 
 If you use a python venv for your starknet development environment, make sure you launch vscode from your venv.
 
