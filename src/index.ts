@@ -112,7 +112,7 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
                     cairoFiles = cairoFiles.concat(findCairoFilesInDir(entryPath));
                 }
                 else if (entry.name.endsWith(".cairo")) {
-                    cairoFiles.push(entryPath);
+                    cairoFiles.push(path.relative(hre.config.paths.starknetSources, entryPath));
                 }
             }
 
@@ -120,8 +120,7 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
         };
 
         // need these paths to be relative not absolute
-        const starknetSources = path.relative(hre.config.paths.root, hre.config.paths.starknetSources);
-        const cairoFiles = findCairoFilesInDir(starknetSources);
+        const cairoFiles = findCairoFilesInDir(hre.config.paths.starknetSources);
 
         return cairoFiles;
     });
@@ -150,7 +149,7 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
             const artifactContainerDir = `${hre.config.paths.starknetArtifacts}/${source}`;
 
             const compileJob = {
-                source: source,
+                source: `${hre.config.paths.starknetSources}/${source}`,
                 artifactPath: `${artifactContainerDir}/${sourceNoExt}.json`,
                 abiPath: `${artifactContainerDir}/${sourceNoExt}_abi.json`
             }
