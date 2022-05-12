@@ -77,16 +77,19 @@ task(TASK_STARKNET_COMPILE)
         const cairoFilesCache: CairoFilesCache = fs.existsSync(cacheFilePath) ?
             JSON.parse(fs.readFileSync(cacheFilePath).toString()) : {};
 
-        const toCompile: string[] = await hre.run(
+        const compileJobs: CompileJob[] = await hre.run(
             TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE,
             { sources: cairoFiles, cache: cairoFilesCache });
 
-        if (toCompile.length > 0) {
+        if (compileJobs.length > 0) {
             try {
                 await hre.run(TASK_STARKNET_COMPILE_COMPILE,
-                    { sources: toCompile, cache: cairoFilesCache });
+                    { compileJobs: compileJobs, cache: cairoFilesCache });
             }
             finally {
+                if (!fs.existsSync(hre.config.paths.cache)) {
+                    fs.mkdirSync(hre.config.paths.cache);
+                }
                 fs.writeFileSync("./cache/cairo-files-cache.json",
                     JSON.stringify(cairoFilesCache, null, 4));
             }
@@ -123,26 +126,45 @@ subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
         return cairoFiles;
     });
 
+type CompileJob = {
+    source: string;
+    artifactPath: string;
+    abiPath: string;
+}
+
 // see what has changed
 subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre): Promise<string[]> => {
-        let toCompile: string[] = [];
+    .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre): Promise<CompileJob[]> => {
+        let toCompile: CompileJob[] = [];
 
         for (let i = 0; i < args.sources.length; ++i) {
             const source = args.sources[i];
+            const sourceNoExt = path.basename(source.substring(0, source.length - 6));
 
-            if (!fs.existsSync(`${hre.config.paths.starknetArtifacts}/${source.substring(0, source.length - 6)}.json`)) {
-                // artifact doesn't exist so definitely needs compiling
-                toCompile.push(source);
+            // we make a dir per cairo file, because we'll be making file.json
+            // and file_abi.json, so if someone called their cairo file
+            // thing_abi.cairo and another called thing.cairo then it would
+            // cause issues.
+            const artifactContainerDir = `${hre.config.paths.starknetArtifacts}/${source}`;
+
+            const compileJob = {
+                source: source,
+                artifactPath: `${artifactContainerDir}/${sourceNoExt}.json`,
+                abiPath: `${artifactContainerDir}/${sourceNoExt}_abi.json`
+            }
+
+            if (!fs.existsSync(compileJob.artifactPath) || !fs.existsSync(compileJob.abiPath)) {
+                // artifact/abi doesn't exist so definitely needs compiling
+                toCompile.push(compileJob);
                 continue;
             }
 
             const fileCache = args.cache[source];
             if (fileCache === undefined) {
                 // not even in cache so definitely needs compiling
-                toCompile.push(source);
+                toCompile.push(compileJob);
                 continue;
             }
 
@@ -155,7 +177,7 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
                     // modified time has changed, so now check contents have actually changed
                     const hash = createHash("md5").update(fs.readFileSync(dependencyPath)).digest().toString("hex");
                     if (hash != dependency.hash) {
-                        toCompile.push(source);
+                        toCompile.push(compileJob);
                     }
                 }
             }
@@ -167,9 +189,9 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
 // compile files
 // TODO concurrency
 subtask(TASK_STARKNET_COMPILE_COMPILE)
-    .addParam("sources", undefined, undefined, types.any)
+    .addParam("compileJobs", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre) => {
+    .setAction(async (args: { compileJobs: CompileJob[], cache: CairoFilesCache }, hre) => {
         // first make sure starknet-compile exists
         try {
             const compiler = await new Promise((resolve, reject) => {
@@ -201,21 +223,24 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
         }
 
         // loop over sources and create a promise for each so they hopefully will run concurrently
-        for (const source of args.sources) {
-            const depsFile = `${hre.config.paths.starknetArtifacts}/${source}.deps.txt`;
-            const outFile = `${hre.config.paths.starknetArtifacts}/${source.substring(0, source.length - 6)}.json`;
-            const outDir = path.dirname(outFile);
+        for (const compileJob of args.compileJobs) {
+            const depsFile = `${compileJob.artifactPath}.deps.txt`;
+            const outDir = path.dirname(compileJob.artifactPath);
             if (!fs.existsSync(outDir)) {
                 fs.mkdirSync(outDir, { recursive: true });
             }
 
             promises.push(new Promise<string>(async (resolve, reject) => {
-                exec(`starknet-compile "${source}" --output "${outFile}" --cairo_dependencies "${depsFile}" --cairo_path "${cairoPath}"`,
+                console.log(`starknet-compile "${compileJob.source}" --output "${compileJob.artifactPath}" --abi "${compileJob.abiPath}" --cairo_dependencies "${depsFile}" --cairo_path "${cairoPath}"`);
+                exec(`starknet-compile "${compileJob.source}" --output "${compileJob.artifactPath}" --abi "${compileJob.abiPath}" --cairo_dependencies "${depsFile}" --cairo_path "${cairoPath}"`,
                     (error, stdout) => {
                         if (error) {
                             // the artifacts can still be created even when compilation fails
-                            if (fs.existsSync(outFile)) {
-                                fs.rmSync(outFile);
+                            if (fs.existsSync(compileJob.artifactPath)) {
+                                fs.rmSync(compileJob.artifactPath);
+                            }
+                            if (fs.existsSync(compileJob.abiPath)) {
+                                fs.rmSync(compileJob.abiPath);
                             }
                             if (fs.existsSync(depsFile)) {
                                 fs.rmSync(depsFile);
@@ -248,7 +273,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
                                     hash: hash
                                 }
 
-                                cache[source] = fileCache;
+                                cache[compileJob.source] = fileCache;
                             }
 
                             resolve(stdout);
@@ -264,12 +289,13 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
         // Promise.all because that always seemed to 
         // kill all the promises if one failed. I'd like
         // as many to succeed as possible.
-        for (const p of promises) {
+        /*for (const p of promises) {
             await p;
-        }
+        }*/
+        Promise.all(promises);
 
         // Report successes
-        const successfulCount = args.sources.length - promiseErrors.length;
+        const successfulCount = args.compileJobs.length - promiseErrors.length;
         if (successfulCount > 0) {
             console.log(`Compiled ${successfulCount} Cairo ${successfulCount > 1 ? "files" : "file"} successfully`);
         }
