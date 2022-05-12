@@ -1,5 +1,5 @@
 {
-  "name": "@playmint/starknet-hardhat-compile",
+  "name": "@playmint/hardhat-starknet-compile",
   "author": "Playmint",
   "license": "CC0-1.0",
   "version": "0.1.0",
