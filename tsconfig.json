@@ -1,7 +1,6 @@
 {
     "compilerOptions": {
         "outDir": "lib",
-        "rootDir": "src",
         "declaration": true,
         "declarationMap": true,
         "esModuleInterop": true,
@@ -12,5 +11,8 @@
         "noUnusedLocals": true,
         "sourceMap": true,
         "strict": true
-    }
+    },
+    "include": [
+        "src"
+    ],
 }

@@ -102,6 +102,10 @@ task(TASK_STARKNET_COMPILE)
 // first gather files
 subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
     .setAction(async (args, hre) => {
+        if (!fs.existsSync(hre.config.paths.starknetSources)) {
+            return [];
+        }
+
         const findCairoFilesInDir = (dir: string): string[] => {
             let cairoFiles: string[] = [];
             const entries = fs.readdirSync(dir, { withFileTypes: true });
