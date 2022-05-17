@@ -16,8 +16,8 @@ import "@playmint/hardhat-starknet-compile";
 ```
 
 ## How to use
-- run a script and your StarkNet contracts will be automatically compiled if necessary (e.g. `npx hardhat run scripts/deploy.ts`)
-- run the `compile` task (`npx hardhat compile`)
+- run a script and your StarkNet contracts will be automatically compiled if necessary (e.g. `npx hardhat run scripts/deploy.ts`), or
+- run the `compile` task (`npx hardhat compile`), or
 - run the `starknet-compile` task (`npx hardhat starknet-compile`)
 
 The artifacts created can be used with [StarkNet.js](https://www.starknetjs.com/), or with [starknet-hardhat-plugin](https://github.com/Shard-Labs/starknet-hardhat-plugin).
