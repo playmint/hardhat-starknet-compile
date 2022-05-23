@@ -1,3 +1,7 @@
+![](https://raw.githubusercontent.com/playmint/hardhat-starknet-compile/main/hardhat-starknet-compile.png)
+
+[![NPM Package](https://img.shields.io/npm/v/@playmint/hardhat-starknet-compile.svg?style=flat-square)](https://www.npmjs.com/package/@playmint/hardhat-starknet-compile)
+---
 # hardhat-starknet-compile
 A plugin for hardhat which compiles your StarkNet contracts for you.
 
