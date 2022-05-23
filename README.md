@@ -1,4 +1,4 @@
-![](https://raw.githubusercontent.com/playmint/hardhat-starknet-compile/main/hardhat-starknet-compile.png)
+<img src="https://raw.githubusercontent.com/playmint/hardhat-starknet-compile/main/hardhat-starknet-compile.png" width="300" height="300"/>
 
 [![NPM Package](https://img.shields.io/npm/v/@playmint/hardhat-starknet-compile.svg?style=flat-square)](https://www.npmjs.com/package/@playmint/hardhat-starknet-compile)
 ---
