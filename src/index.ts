@@ -121,7 +121,22 @@ subtask(TASK_STARKNET_COMPILE_GET_COMPILER_VERSION)
                 throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
             }
 
-            return compiler;
+            try {
+                const compilerVersion = await new Promise((resolve, reject) => {
+                    exec("starknet-compile --version", (error, stdout) => {
+                        if (error) {
+                            reject(error);
+                        }
+                        else {
+                            resolve(stdout);
+                        }
+                    });
+                });
+
+                return compilerVersion;
+            } catch (err) {
+                throw new HardhatPluginError("hardhat-starknet-compile", "Failed to get StarkNet compiler version");
+            }
         }
         catch (err) {
             throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
