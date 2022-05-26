@@ -10,11 +10,13 @@ import { HardhatConfig, HardhatUserConfig } from "hardhat/types";
 import "./type-extensions";
 
 export const TASK_STARKNET_COMPILE: string = "starknet-compile";
+export const TASK_STARKNET_COMPILE_GET_COMPILER_VERSION: string = "starknet-compile:get-compiler-version";
 export const TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES: string = "starknet-compile:gather-cairo-files";
 export const TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE: string = "starknet-compile:get-files-to-compile";
 export const TASK_STARKNET_COMPILE_COMPILE: string = "starknet-compile:compile";
 
 interface CairoFileCache {
+    compilerVersion: string;
     dependencies: {
         [filePath: string]: {
             lastModificationTime: number;
@@ -71,6 +73,8 @@ task(TASK_COMPILE)
 // standalone compile task
 task(TASK_STARKNET_COMPILE)
     .setAction(async (args, hre) => {
+        const compilerVersion: string = await hre.run(TASK_STARKNET_COMPILE_GET_COMPILER_VERSION);
+
         const cairoFiles: string[] = await hre.run(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES);
 
         const cacheFilePath = `${hre.config.paths.cache}/cairo-files-cache.json`;
@@ -79,12 +83,12 @@ task(TASK_STARKNET_COMPILE)
 
         const compileJobs: CompileJob[] = await hre.run(
             TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE,
-            { sources: cairoFiles, cache: cairoFilesCache });
+            { sources: cairoFiles, cache: cairoFilesCache, compilerVersion: compilerVersion });
 
         if (compileJobs.length > 0) {
             try {
                 await hre.run(TASK_STARKNET_COMPILE_COMPILE,
-                    { compileJobs: compileJobs, cache: cairoFilesCache });
+                    { compileJobs: compileJobs, cache: cairoFilesCache, compilerVersion: compilerVersion });
             }
             finally {
                 if (!fs.existsSync(hre.config.paths.cache)) {
@@ -99,7 +103,32 @@ task(TASK_STARKNET_COMPILE)
         }
     });
 
-// first gather files
+// get compiler version we're using
+subtask(TASK_STARKNET_COMPILE_GET_COMPILER_VERSION)
+    .setAction(async () => {
+        try {
+            const compiler = await new Promise((resolve, reject) => {
+                exec("which starknet-compile", (error, stdout) => {
+                    if (error) {
+                        reject(error);
+                    }
+                    else {
+                        resolve(stdout);
+                    }
+                });
+            });
+            if (compiler == "") {
+                throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
+            }
+
+            return compiler;
+        }
+        catch (err) {
+            throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
+        }
+    });
+
+// gather files
 subtask(TASK_STARKNET_COMPILE_GATHER_CAIRO_FILES)
     .setAction(async (args, hre) => {
         if (!fs.existsSync(hre.config.paths.starknetSources)) {
@@ -139,7 +168,7 @@ type CompileJob = {
 subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
     .addParam("sources", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
-    .setAction(async (args: { sources: string[], cache: CairoFilesCache }, hre): Promise<CompileJob[]> => {
+    .setAction(async (args: { sources: string[], cache: CairoFilesCache, compilerVersion: string }, hre): Promise<CompileJob[]> => {
         let toCompile: CompileJob[] = [];
 
         for (let i = 0; i < args.sources.length; ++i) {
@@ -171,11 +200,17 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
                 continue;
             }
 
+            // if compiler has changed then we'll need to recompile just in case
+            if (fileCache.compilerVersion !== args.compilerVersion) {
+                toCompile.push(compileJob);
+                continue;
+            }
+
             // see if the file or any deps have changed
             for (const dependencyPath in fileCache.dependencies) {
                 const dependency = fileCache.dependencies[dependencyPath];
 
-                // first check file modified time
+                // check file modified time
                 if (fs.statSync(dependencyPath).mtime.getTime() != dependency.lastModificationTime) {
                     // modified time has changed, so now check contents have actually changed
                     const hash = createHash("md5").update(fs.readFileSync(dependencyPath)).digest().toString("hex");
@@ -193,27 +228,7 @@ subtask(TASK_STARKNET_COMPILE_GET_FILES_TO_COMPILE)
 subtask(TASK_STARKNET_COMPILE_COMPILE)
     .addParam("compileJobs", undefined, undefined, types.any)
     .addParam("cache", undefined, undefined, types.any)
-    .setAction(async (args: { compileJobs: CompileJob[], cache: CairoFilesCache }, hre) => {
-        // first make sure starknet-compile exists
-        try {
-            const compiler = await new Promise((resolve, reject) => {
-                exec("which starknet-compile", (error, stdout) => {
-                    if (error) {
-                        reject(error);
-                    }
-                    else {
-                        resolve(stdout);
-                    }
-                });
-            });
-            if (compiler == "") {
-                throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
-            }
-        }
-        catch (err) {
-            throw new HardhatPluginError("hardhat-starknet-compile", "Starknet compiler not found, did you forget to activate your venv?");
-        }
-
+    .setAction(async (args: { compileJobs: CompileJob[], cache: CairoFilesCache, compilerVersion: string }, hre) => {
         // now attempt to compile everything and update the cache when successful
         const cache = args.cache;
         let promises = [];
@@ -250,7 +265,7 @@ subtask(TASK_STARKNET_COMPILE_COMPILE)
                             reject(error);
                         }
                         else {
-                            const fileCache: CairoFileCache = { dependencies: {} };
+                            const fileCache: CairoFileCache = { compilerVersion: args.compilerVersion, dependencies: {} };
 
                             const depsRows = fs.readFileSync(depsFile).toString().split("\n");
                             fs.rmSync(depsFile);
