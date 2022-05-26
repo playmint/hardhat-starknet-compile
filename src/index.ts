@@ -122,7 +122,7 @@ subtask(TASK_STARKNET_COMPILE_GET_COMPILER_VERSION)
             }
 
             try {
-                const compilerVersion = await new Promise((resolve, reject) => {
+                const compilerVersion: string = await new Promise((resolve, reject) => {
                     exec("starknet-compile --version", (error, stdout) => {
                         if (error) {
                             reject(error);
@@ -133,7 +133,7 @@ subtask(TASK_STARKNET_COMPILE_GET_COMPILER_VERSION)
                     });
                 });
 
-                return compilerVersion;
+                return compilerVersion.trim();
             } catch (err) {
                 throw new HardhatPluginError("hardhat-starknet-compile", "Failed to get StarkNet compiler version");
             }
